@@ -1,0 +1,577 @@
+---
+title: "Characterizing Negative Affect in Adolescence"
+author: "Katherine Grisanzio"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Motivation
+
+Research shows negative affect increases in healthy adolescents, and this normative change is
+paralleled by increasing risk for the onset of psychopathology. However, research is limited in
+characterizing qualitative differences in the type of negative affect experienced beyond the
+positive-negative valence dimension. In this analysis, we establish the relationship between
+different forms of negative affect and functioning outcomes (i.e., different facets of social
+functioning and life satisfaction), and examine whether these forms of negative affect are
+differentially prevalent across late childhood and adolescence. 
+
+## Dataset
+Data was collected as a part of the Human Connectome Project in Development, a large multi-site study aiming to characterize changes in brain development. 770 participants aged 8-17 years completed self-report measures that assessed a wide range of negative affective experiences. Variables in the dataset are in the form of 4 or 5-point Likert responses.
+
+## Primary Analysis Aims
+
+### - Exploratory Factor Analysis
+The first aim of the study was to uncover the latent structure of the negative affect
+variables to obtain meaningful summary scores for different forms of negative affect in our
+sample. We implemented a data-driven approach to identify forms of negative affect.
+
+### - Confirmatory Factor Analysis
+To evaluate the fit of the factor structure extracted in the EFA, we conducted a
+confirmatory factor analysis (CFA). We calculated and report the standard measures and fit rules to assess how well the proposed model produced by the EFA captures the covariance between the measured items.
+
+### - Generalized Additive Modeling 
+To explore non-linear age-related changes, we used generalized additive models (GAM) with thin-plate regression splines. This method produces regression equations that fit the data using cross-validation procedures but are also penalized for the number of parameters to prevent overfitting. 
+
+### - Regression Analyses
+To test the extent to which the negative affect factors relate to the identified social
+domains across the age range as a whole, we fit regression models with the spline of age included as a control. Multiple comparisons were accounted for using the Holm method, which controls the family-wise error rate.
+
+
+## Load Packages
+```{r packages, include=TRUE, message=FALSE, warning=FALSE}
+
+if (!require("formatR")) {install.packages("formatR"); require("formatR")}
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+
+if (!require("dplyr")) {install.packages("dplyr"); require("dplyr")}
+if (!require("psych")) {install.packages("psych"); require("psych")}
+if (!require("plyr")) {install.packages("plyr"); require("plyr")}
+if (!require("Hmisc")) {install.packages("Hmisc"); require("Hmisc")}
+if (!require("corrplot")) {install.packages("corrplot"); require("corrplot")}
+if (!require("mgcv")) {install.packages("mgcv"); require("mgcv")}
+if (!require("viridis")) {install.packages("viridis"); require("viridis")}
+if (!require("lavaan")) {install.packages("lavaan"); require("lavaan")}
+if (!require("visreg")) {install.packages("visreg"); require("visreg")}
+if (!require("data.table")) {install.packages("data.table"); require("data.table")}
+if (!require("igraph")) {install.packages("igraph"); require("igraph")}
+if (!require("ggplot2")) {install.packages("ggplot2"); require("ggplot2")}
+if (!require("car")) {install.packages("car"); require("car")}
+if (!require("knitr")) {install.packages("knitr"); require("knitr")}
+if (!require("equaltestMI")) {install.packages("equaltestMI"); require("equaltestMI")}
+if (!require("ggpubr")) {install.packages("ggpubr"); require("ggpubr")}
+
+```
+
+## Import Data
+```{r import, include=TRUE, message=FALSE, warning=FALSE}
+
+# Set working directory
+setwd("/Users/katherinegrisanzio/Dropbox/Harvard/Lab/Second Year Project - HCP/NIH Toolbox Emotion Data/")
+
+# Load data
+data_raw_old <- read.csv("20190424_Clean_ToolboxRaw_EmotionDataset.csv")
+data_scored_old <- read.csv("20190424_Clean_ToolboxScored_EmotionDataset.csv")
+data_demo_old <- read.csv("Combined_basic_demographics.csv")
+data_child_eatq_bisbas_old <- read.csv("HCPDChild_DATA_2019-08-13_1734.csv")
+data_parent_cbcl_eatq_bisbas_old <- read.csv("HCPDParent_DATA_2019-08-13-1733.csv")
+data_raw_new <- read.csv("April2019throughMar2020_KG Data_HCD_Toolbox Emotion_Raw.csv")
+data_child_eatq_bisbas_new <- read.csv("April2019throughMar2020_KG Data_HCPDChild_REDCap.csv")
+new_redcap <- read.csv("REDCap_hcpdchild_05_14_2021.csv")
+
+```
+
+## Process Data
+```{r process, include=TRUE, message=FALSE, warning=FALSE}
+
+# Clean and select relevant columns from each dataset
+
+# data_raw
+relevant_vars_data_raw <- c("PIN", "Inst", "ItemID", "Response") 
+data_raw_old <- data_raw_old[relevant_vars_data_raw] # select relevant cols from both old and new dataset
+data_raw_new <- data_raw_new[relevant_vars_data_raw] 
+data_raw_new$PIN <- gsub("_V1", "", data_raw_new$PIN) # Remove _V1 from ID column for merging
+data_raw <- rbind(data_raw_old, data_raw_new) # combine old and new datasets
+data_raw <- distinct(data_raw) # remove duplicate rows
+
+# Set 'ItemID' as factor
+data_raw$ItemID <- as.factor(data_raw$ItemID)
+
+# Rename items that are the same across child and adult questionnaires - name it "childsurveyname_adultsurveyname"
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="PedRepDep36"] <- "PedRepDep36_Depression48"
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="Depression48"] <- "PedRepDep36_Depression48"
+
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="PedRepDep37"] <- "PedRepDep37_Depression43"
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="Depression43"] <- "PedRepDep37_Depression43"
+
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="PedRepDep38"] <- "PedRepDep38_Depression36"
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="Depression36"] <- "PedRepDep38_Depression36"
+
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="PedRepAnx44"] <- "PedRepAnx44_Anxiety51"
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="Anxiety51"] <- "PedRepAnx44_Anxiety51"
+
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="PedRepAnx48"] <- "PedRepAnx48_Anxiety57"
+levels(data_raw$ItemID)[levels(data_raw$ItemID)=="Anxiety57"] <- "PedRepAnx48_Anxiety57"
+
+# Remove parent-reported and adult (18+) data
+data_raw <- data_raw[!grepl("pxy|prox", ignore.case=TRUE, data_raw$ItemID),]
+data_raw <- data_raw[!grepl("18+", ignore.case=TRUE, data_raw$Inst),]
+
+# Remove 'Inst' variable
+data_raw$Inst <- NULL
+
+# Remove -1's from Response variable and replace with NA
+data_raw$Response[data_raw$Response < 0] <- NA
+
+# Reshape to wide
+data_raw_wide <- reshape(data_raw, idvar = c("PIN"), timevar = "ItemID", direction = "wide") 
+
+
+# data_demo
+names(data_demo_old)[1] <- "PIN" # rename all ID variables "PIN" for merging
+relevant_vars_demo <- c("PIN", "gender", "age")
+data_demo_old <- data_demo_old[relevant_vars_demo]
+
+names(data_child_eatq_bisbas_new)[2] <- "PIN" # rename all ID variables "PIN" for merging
+data_demo_new <- data_child_eatq_bisbas_new[relevant_vars_demo]
+
+data_demo <- rbind(data_demo_old, data_demo_new)
+
+
+# bis
+names(data_child_eatq_bisbas_old)[3] <- "PIN"
+data_child_eatq_bisbas_old <- data_child_eatq_bisbas_old[, c(3, 76:95)]
+data_child_eatq_bisbas_new <- data_child_eatq_bisbas_new[, c(2, 8:27)]
+names(new_redcap)[2] <- "PIN"
+new_redcap <- new_redcap[which(new_redcap$visit == 1), ]
+new_redcap <- new_redcap[, c(2, 342:361)]
+new_redcap <- new_redcap[, c(1, 2, 13, 15:21, 3:12, 14)]
+bisbas_data <- rbind(data_child_eatq_bisbas_old, data_child_eatq_bisbas_new, new_redcap)
+bisbas_data <- bisbas_data[rowSums(is.na(bisbas_data[,2:21]))!=20,] # remove rows with all NA
+bisbas_data <- distinct(bisbas_data) # remove duplicates from merging
+
+# Merge datasets
+
+# Merge data_scored and data_demo
+merge_temp1 <- base::merge(data_demo, data_raw_wide, by=c("PIN"), all=TRUE)
+
+# Merge merge_temp1 and data_child_eatq_bisbas
+data <- base::merge(merge_temp1, bisbas_data, by=c("PIN"), all=TRUE)
+
+# Only keep participants > age 8
+data <- data[ which(data$age >= 8),]
+
+# Add a truncated age variable for plotting
+data$age_trunc <- trunc(data$age)
+
+# Remove duplicates caused by merging
+data_data <- distinct(data)
+
+# Retain variables that relate to core negative affect
+core_emo_vars <- c("PIN", "age", "gender", "age_trunc", 
+                   "Response.PedRepAng13", "Response.PedRepAng14", "Response.PedRepAng16", "Response.PedRepAng17", "Response.PedRepAng18",
+                   "Response.PedRepAnx42", "Response.PedRepAnx43", "Response.PedRepAnx44_Anxiety51", "Response.PedRepAnx46", "Response.PedRepAnx48_Anxiety57", "Response.PedRepAnx50", "Response.PedRepAnx51",      
+                   "Response.PedRepDep36_Depression48", "Response.PedRepDep38_Depression36", "Response.PedRepDep41",                          
+                   "bisbas1", "bisbas2", "bisbas3", "bisbas4", "bisbas5", "bisbas6", "bisbas7")               
+
+data <- data_data[core_emo_vars] # data for primary factor analysis
+
+# Remove columns that have the same values for all participants, as these have 0 variance
+data <- data[vapply(data, function(x) length(unique(x)) > 1, logical(1L))] 
+
+
+# Limit age 
+efa_data_primary <- data[ which(data$age >= 8 & data$age < 18),]
+
+# View number of NA's for each person, sorted
+# sort(rowSums(is.na(efa_data_primary)))
+
+# View items with most missing data
+# sort(colSums(is.na(efa_data_primary))/nrow(efa_data_primary))
+
+# Remove participants with more than 20% missing data
+efa_data_primary <- efa_data_primary[rowSums(is.na(efa_data_primary))/ncol(efa_data_primary) <= .20,]
+
+# To keep ordinal structure of the Likert data, median replace the remaining NAs
+for(j in 5:ncol(efa_data_primary)) {
+  m <- median(efa_data_primary[,j], na.rm=TRUE)
+  
+  for (i in 1:nrow(efa_data_primary)) {
+    if(is.na(efa_data_primary[i,j])) {efa_data_primary[i,j] <- m}
+  }
+}
+
+# Remove now empty levels for PIN
+efa_data_primary$PIN <- as.character(efa_data_primary$PIN)
+efa_data_primary$PIN <- as.factor(efa_data_primary$PIN)
+
+efa_data_primary$gender <- as.factor(efa_data_primary$gender) # and factor gender
+
+# Re-name var names for interpretation
+efa_data_primary <- efa_data_primary %>% 
+  dplyr::rename(
+    Response.PedRepAng13_I_felt_mad = Response.PedRepAng13,
+    Response.PedRepAng14_I_was_so_angry_I_felt_like_yelling_at_somebody = Response.PedRepAng14,               
+    Response.PedRepAng16_I_felt_fed_up = Response.PedRepAng16,                
+    Response.PedRepAng17_I_was_so_angry_I_felt_like_throwing_something = Response.PedRepAng17,                 
+    Response.PedRepAng18_I_felt_upset = Response.PedRepAng18,                
+    Response.PedRepAnx42_I_felt_scared = Response.PedRepAnx42,                 
+    Response.PedRepAnx43_I_worried_about_what_could_happen_to_me = Response.PedRepAnx43,                
+    Response.PedRepAnx46_I_worried_when_I_went_to_bed_at_night = Response.PedRepAnx46,                
+    Response.PedRepAnx50_I_worried_when_I_was_at_home = Response.PedRepAnx50,                 
+    Response.PedRepAnx51_I_got_scared_really_easily = Response.PedRepAnx51,                
+    Response.PedRepAnx44_Anxiety51_I_felt_worried = Response.PedRepAnx44_Anxiety51,       
+    Response.PedRepDep41_I_could_not_stop_feeling_sad = Response.PedRepDep41,                
+    bisbas1_I_usually_get_very_tense_when_I_think_something_unpleasant_is_going_to_happen = bisbas1,           
+    bisbas2_I_worry_about_making_mistakes = bisbas2,                             
+    bisbas3_I_am_hurt_when_people_scold_me_or_tell_me_that_I_do_something_wrong = bisbas3,                     
+    bisbas4_I_feel_pretty_upset_when_I_think_that_someone_is_angry_with_me = bisbas4,        
+    bisbas5_I_do_not_become_fearful_or_nervous_even_when_something_bad_happens_to_me = bisbas5,             
+    bisbas6_I_feel_worried_when_I_think_I_have_done_poorly_at_something = bisbas6,            
+    bisbas7_I_am_very_fearful_compared_to_my_friends = bisbas7,                             
+    Response.PedRepAnx48_Anxiety57_I_felt_nervous = Response.PedRepAnx48_Anxiety57,                           
+    Response.PedRepDep36_Depression48_I_felt_unhappy = Response.PedRepDep36_Depression48,     
+    Response.PedRepDep38_Depression36_I_felt_sad = Response.PedRepDep38_Depression36)
+
+```
+
+## Exploratory Factor Analysis
+```{r efa, include=TRUE, message=FALSE, warning=FALSE}
+
+# Calculate polychoric correlations for ordinal data
+cor_mat_smooth <- polychoric(efa_data_primary[,c(5:23, 25)], smooth = TRUE)
+
+# Determine number of factors - scree plot and parallel analysis
+var <- polychoric(efa_data_primary[,c(5:23, 25)], smooth = TRUE)$rho
+## Parallel analysis compares the eigenvalues from the data to eigenvalues generated from a random
+## dataset and retains factors whose eigenvalues > eigenvalues from random data
+fa.parallel(var, fm="ml", fa="fa", n.obs = 770, main = "Scree Plot")
+
+# Run factor analysis
+fac_solution <- fa(efa_data_primary[,c(5:23, 25)], nfactors = 4,  rotate="oblimin", scores=TRUE, fm = "ml", cor = "poly")
+# View loadings
+# print(fac_solution$loadings, cutoff = 0.3, sort = TRUE)
+
+# Calculate variance explained
+SS<-colSums(fac_solution$Structure^2)
+# Compute percentage of explained variance by factor
+SS/length(fac_solution$communality)
+# Total explained variability
+mean(fac_solution$communality)
+
+# Add factor scores to dataframe
+df_to_merge <- data.frame(fac_solution$scores)
+efa_data_primary <- cbind(efa_data_primary, df_to_merge)
+
+#names(efa_data_primary)[34] <- "General_Worry"
+#names(efa_data_primary)[35] <- "Anger"
+#names(efa_data_primary)[36] <- "Sadness"
+#names(efa_data_primary)[37] <- "Evaluative_Worry"
+
+```
+
+## Confirmatory Factor Analysis
+```{r cfa, include=TRUE, message=FALSE, warning=FALSE}
+
+# Abbreviated variable names
+efa_data_primary_cfa <- efa_data_primary %>% 
+  dplyr::rename(
+    Response.PedRepAng13 = Response.PedRepAng13_I_felt_mad,
+    Response.PedRepAng14 = Response.PedRepAng14_I_was_so_angry_I_felt_like_yelling_at_somebody, 
+    Response.PedRepAng16 = Response.PedRepAng16_I_felt_fed_up,                
+    Response.PedRepAng17 = Response.PedRepAng17_I_was_so_angry_I_felt_like_throwing_something,                 
+    Response.PedRepAng18 = Response.PedRepAng18_I_felt_upset,                
+    Response.PedRepAnx42 = Response.PedRepAnx42_I_felt_scared,                 
+    Response.PedRepAnx43 = Response.PedRepAnx43_I_worried_about_what_could_happen_to_me,                
+    Response.PedRepAnx46 = Response.PedRepAnx46_I_worried_when_I_went_to_bed_at_night,  
+    Response.PedRepAnx48_Anxiety57 =  Response.PedRepAnx48_Anxiety57_I_felt_nervous,
+    Response.PedRepAnx50 = Response.PedRepAnx50_I_worried_when_I_was_at_home,                 
+    Response.PedRepAnx51 = Response.PedRepAnx51_I_got_scared_really_easily,                
+    Response.PedRepAnx44_Anxiety51 = Response.PedRepAnx44_Anxiety51_I_felt_worried,       
+    Response.PedRepDep41 = Response.PedRepDep41_I_could_not_stop_feeling_sad,   
+    Response.PedRepDep36_Depression48 = Response.PedRepDep36_Depression48_I_felt_unhappy,
+    Response.PedRepDep38_Depression36 = Response.PedRepDep38_Depression36_I_felt_sad,
+    bisbas1 = bisbas1_I_usually_get_very_tense_when_I_think_something_unpleasant_is_going_to_happen,
+    bisbas2 = bisbas2_I_worry_about_making_mistakes,                             
+    bisbas3 = bisbas3_I_am_hurt_when_people_scold_me_or_tell_me_that_I_do_something_wrong,  
+    bisbas4 = bisbas4_I_feel_pretty_upset_when_I_think_that_someone_is_angry_with_me, 
+    bisbas6 = bisbas6_I_feel_worried_when_I_think_I_have_done_poorly_at_something)
+
+# Set CFA model
+Rmot2 <- na.omit(efa_data_primary_cfa[,c(5:23, 25)])
+mot_model2 <- '
+worry =~ Response.PedRepAnx42 + Response.PedRepAnx43 + Response.PedRepAnx44_Anxiety51 + Response.PedRepAnx46 + Response.PedRepAnx48_Anxiety57 + Response.PedRepAnx50 + Response.PedRepAnx51
+anger =~ Response.PedRepAng13 + Response.PedRepAng14 + Response.PedRepAng16 + Response.PedRepAng17
+sadness =~ Response.PedRepAng18 + Response.PedRepDep36_Depression48 + Response.PedRepDep38_Depression36 + Response.PedRepDep41
+eval_antic =~ bisbas1 + bisbas2 + bisbas3 + bisbas6 + bisbas4'
+
+# Fit CFA models
+fit1 <- lavaan::cfa(mot_model2, data = efa_data_primary_cfa,
+                       ordered = names(Rmot2), meanstructure = TRUE)
+
+# Model 2: configural invariance. The same factor structure is imposed on all groups.
+fit2 <- lavaan::cfa(mot_model2, data = efa_data_primary_cfa,
+                    ordered = names(Rmot2), meanstructure = TRUE, group = "gender") 
+
+# Model 3: weak invariance. The factor loadings are constrained to be equal across groups.
+fit3 <- lavaan::cfa(mot_model2, data = efa_data_primary_cfa,
+                    ordered = names(Rmot2), meanstructure = TRUE, group = "gender", group.equal = "loadings")
+
+# Model 4: strong invariance. The factor loadings and intercepts are constrained to be equal across groups.
+fit4 <- lavaan::cfa(mot_model2, data = efa_data_primary_cfa,
+                    ordered = names(Rmot2), meanstructure = TRUE, group = "gender", group.equal = c("intercepts", "loadings"))
+
+
+# Model comparison tests
+lavTestLRT(fit2, fit3, fit4)
+# Produces two tests: the first test compares the first model versus the second model, while the second test compares the second model versus the third model.
+# Because both p-values are non-significant, we can conclude that both weak and strong invariance
+# is supported in the data, meaning we are able to compare the values of the latent means across the 
+# two groups.
+
+
+
+```
+
+## Factor Loading Plot
+```{r faplot, include=TRUE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 12}
+
+# Convert loading list to a dataframe
+loadings_sorted <- fa.sort(fac_solution$loadings)
+loadings_df <- data.frame(matrix(as.numeric(loadings_sorted), attributes(loadings_sorted)$dim, dimnames=attributes(loadings_sorted)$dimnames))
+
+# Make long for plotting
+loadings_df <- data.frame(item=rownames(loadings_df), loadings_df, row.names=NULL) # get ID as variable rather than row name
+loadings_df$item <- factor(loadings_df$item, levels = loadings_df$item) # lock in factor level order for plot to be sorted
+varying <- colnames(loadings_df)[2:5]
+loadings_df_long <- reshape(loadings_df, varying = varying, idvar = "item", timevar = "factor", v.names = "loading", times = varying, direction = "long")
+loadings_df_long$factor <- factor(loadings_df_long$factor, levels = c("ML1", "ML2", "ML4", "ML3"), labels = c("General Anxiety", "Anger", "Evaluative \nAnxiety", "Sadness")) # re-order factors for plotting
+
+
+# Re-name item names to be more succinct
+loadings_df_long$item <- revalue(loadings_df_long$item, c(
+  "Response.PedRepAnx46_I_worried_when_I_went_to_bed_at_night"="Worried when went to bed at night", 
+  "Response.PedRepAnx43_I_worried_about_what_could_happen_to_me"="Worried about what could happen to me",
+  "Response.PedRepAnx50_I_worried_when_I_was_at_home" = "Worried when at home",
+  "Response.PedRepAnx42_I_felt_scared" = "Felt scared",
+  "Response.PedRepAnx44_Anxiety51_I_felt_worried" = "Felt worried",
+  "Response.PedRepAnx51_I_got_scared_really_easily" = "Got scared really easily",
+  "Response.PedRepDep41_I_could_not_stop_feeling_sad" = "Could not stop feeling sad",
+  "Response.PedRepAng14_I_was_so_angry_I_felt_like_yelling_at_somebody" = "Was so angry felt like yelling at somebody",    
+  "Response.PedRepAng13_I_felt_mad" = "Felt mad",                                                              
+  "Response.PedRepAng17_I_was_so_angry_I_felt_like_throwing_something" = "Was so angry felt like throwing something",                                                                                                    
+  "Response.PedRepAng16_I_felt_fed_up" = "Felt fed up",                                                        
+  "Response.PedRepAng18_I_felt_upset" = "Felt upset", 
+  "bisbas2_I_worry_about_making_mistakes" = "Worry about making mistakes",                                     
+  "bisbas6_I_feel_worried_when_I_think_I_have_done_poorly_at_something" = "Feel worried when I think I have done poorly",                                                                                                  
+  "bisbas1_I_usually_get_very_tense_when_I_think_something_unpleasant_is_going_to_happen" = "Get tense when I think something unpleasant will happen",                                                                       
+  "bisbas3_I_am_hurt_when_people_scold_me_or_tell_me_that_I_do_something_wrong" = "Am hurt when people scold me",                                                                                                     
+  "bisbas4_I_feel_pretty_upset_when_I_think_that_someone_is_angry_with_me" = "Feel upset when I think that someone is angry with me",
+  "Response.PedRepAnx48_Anxiety57_I_felt_nervous" = "Felt nervous",
+  "Response.PedRepDep38_Depression36_I_felt_sad" = "Felt sad",
+  "Response.PedRepDep36_Depression48_I_felt_unhappy" = "Felt unhappy"
+))
+
+# Plot
+efaplot <- ggplot(loadings_df_long, aes(item, abs(loading), fill=abs(loading))) + 
+  facet_wrap(~ factor, nrow=1) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_x_discrete(limits = rev(levels(loadings_df_long$item))) + 
+  scale_fill_gradient2(name = "Loading",
+                       high = "darkgreen", mid = "lightblue", low = "navyblue",
+                       midpoint = 0, guide = "none") +
+  ylab("Loading") +
+  theme_minimal(base_size=14) +
+  xlab("") +
+  theme(axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 12), strip.text.x = element_text(face="bold"))
+efaplot
+
+```
+
+## Generalized Additive Modeling
+```{r gams, include=TRUE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 6}
+
+# Conduct model comparison between null, linear, and spline models for each factor
+
+# ML1: General Anxiety
+M1 <- lm(ML1 ~ 1, data = efa_data_primary)
+M1_linear <- lm(ML1 ~ age, data = efa_data_primary)
+M1_spline <- gam(ML1 ~ s(age), data = efa_data_primary)
+AIC(M1, M1_linear, M1_spline) 
+
+summary(M1_spline)
+
+deriv_m1 <- gratia::derivatives(M1_spline, n = 100, eps = 1e-07, level = .95, interval = "simultaneous", unconditional = TRUE, n_sim = 10000)
+
+too_small <- function(x) abs(x) < 10^-15
+clip_on_siggratia <- function(ci){
+  # This function returns a ci object with a sig (1) non sig variable (0) 
+  # if confidence interval includes zero
+  # signs of x and y will be different, -x * +y  < 0
+  # or if both high and low are extremly close to zero
+  not_sig <- ci$lower * ci$upper < 0 |
+    (too_small(ci$lower) & too_small(ci$upper)) ####dealing with the float of R
+  ci$sig <- 1
+  ci$sig[not_sig] <- 0
+  return(ci)
+}
+
+deriv1_sig_table_m1 <- clip_on_siggratia(deriv_m1)
+#deriv_range_age_for_plotting_m1 <- range(deriv1_sig_table_m1[ which(deriv1_sig_table_m1$sig == 1), "data"])
+
+scatter_M1 <- visreg(M1_spline, "age", ylab = "Factor Score", gg=TRUE, legend=FALSE, line.par = list(col = "black"), points.par = list(alpha = 0, size = 2)) +
+  labs(title = "General Anxiety") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(-.7, 1)) +
+  xlab("Age") +
+  scale_x_continuous(breaks = c(8:17)) +
+  theme(plot.title = element_text(size=12, hjust = .5, face="bold"), legend.title = element_blank(), 
+        axis.text.y = element_text(size=12, color = "black"), axis.title=element_text(size=12, color="black"), legend.text = element_text(size = 12, face="bold"),
+        axis.text.x = element_text(size=12, color = "black"),
+        panel.border = element_blank(), axis.line = element_line()) +
+  geom_hline(yintercept = 0, linetype='dashed')
+
+
+# ML2: Anger
+M2 <- lm(ML2 ~ 1, data = efa_data_primary)
+M2_linear <- lm(ML2 ~ age, data = efa_data_primary)
+M2_spline <- gam(ML2 ~ s(age), data = efa_data_primary)
+AIC(M2, M2_linear, M2_spline) # null
+
+scatter_M2 <- visreg(M2_linear, "age", ylab = "Factor Score", gg=TRUE, legend=FALSE, line.par = list(col = "black"), points.par = list(alpha = 0, size = 2)) +
+  labs(title = "Anger") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(-.7, 1)) +
+  xlab("Age") +
+  scale_x_continuous(breaks = c(8:17)) +
+  theme(plot.title = element_text(size=12, hjust = .5, face="bold"), legend.title = element_blank(), 
+        axis.text.y = element_text(size=12, color = "black"), axis.title=element_text(size=12, color="black"), legend.text = element_text(size = 12, face="bold"),
+        axis.text.x = element_text(size=12, color = "black"),
+        panel.border = element_blank(), axis.line = element_line()) 
+
+
+# ML3
+M3 <- lm(ML3 ~ 1, data = efa_data_primary)
+M3_linear <- lm(ML3 ~ age, data = efa_data_primary)
+M3_spline <- gam(ML3 ~ s(age), data = efa_data_primary)
+AIC(M3, M3_linear, M3_spline) 
+
+summary(M3_spline) 
+
+deriv_m3 <- gratia::derivatives(M3_spline, n = 100, eps = 1e-07, level = .95, interval = "simultaneous", unconditional = TRUE, n_sim = 10000)
+deriv1_sig_table_m3 <- clip_on_siggratia(deriv_m3)
+#deriv_range_age_for_plotting_m3 <- range(deriv1_sig_table_m3[ which(deriv1_sig_table_m3$sig == 1), "data"])
+
+scatter_M3 <- visreg(M3_spline, "age", ylab = "Factor Score", gg=TRUE, legend=FALSE, line.par = list(col = "black"), points.par = list(alpha = 0, size = 2)) +
+  labs(title = "Evaluative Anxiety") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(-.7, 1)) +
+  xlab("Age") +
+  scale_x_continuous(breaks = c(8:17)) +
+  theme(plot.title = element_text(size=12, hjust = .5, face="bold"), legend.title = element_blank(), 
+        axis.text.y = element_text(size=12, color = "black"), axis.title=element_text(size=12, color="black"), legend.text = element_text(size = 12, face="bold"),
+        axis.text.x = element_text(size=12, color = "black"),
+        panel.border = element_blank(), axis.line = element_line()) +
+  geom_hline(yintercept = 0, linetype='dashed')
+
+
+# ML4: Evaluative Anxiety
+M4 <- lm(ML4 ~ 1, data = efa_data_primary)
+M4_linear <- lm(ML4 ~ age, data = efa_data_primary)
+M4_spline <- gam(ML4 ~ s(age), data = efa_data_primary)
+AIC(M4, M4_linear, M4_spline) 
+
+summary(M4_spline) 
+
+deriv_M4 <- gratia::derivatives(M4_spline, n = 100, eps = 1e-07, level = .95, interval = "simultaneous", unconditional = TRUE, n_sim = 10000)
+deriv1_sig_table_M4 <- clip_on_siggratia(deriv_M4)
+#deriv_range_age_for_plotting_m4 <- range(deriv1_sig_table_M4[ which(deriv1_sig_table_M4$sig == 1), "data"])
+
+scatter_M4 <- visreg(M4_spline, "age", ylab = "Factor Score", gg=TRUE, legend=FALSE, line.par = list(col = "black"), points.par = list(alpha = 0, size = 2)) +
+  labs(title = "General Anxiety") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(-.7, 1)) +
+  xlab("Age") +
+  scale_x_continuous(breaks = c(8:17)) +
+  theme(plot.title = element_text(size=12, hjust = .5, face="bold"), legend.title = element_blank(), 
+        axis.text.y = element_text(size=12, color = "black"), axis.title=element_text(size=12, color="black"), legend.text = element_text(size = 12, face="bold"),
+        axis.text.x = element_text(size=12, color = "black"),
+        panel.border = element_blank(), axis.line = element_line()) 
+
+fig_plot <- ggarrange(scatter_M4, scatter_M2, scatter_M3, scatter_M1, ncol = 2, nrow=2)
+fig_plot
+
+```
+
+## Regression Analyses
+```{r regs, include=TRUE, message=FALSE, warning=FALSE, fig.height = 6, fig.width = 6}
+
+# Retain variables that relate to social functioning
+social_vars <- colnames(data_data)[(grep("SOC", colnames(data_data)))]
+social_data <- data_data[c("PIN", social_vars)] 
+
+# Merge with primary df
+social_data <- base::merge(social_data, efa_data_primary[c(1:3,27:30)], by = "PIN", all.x = FALSE, all.y = TRUE)
+#sort(colSums(is.na(social_data)))
+
+# Remove variables with more than 20% missing data
+social_data <- social_data[colSums(is.na(social_data))/nrow(social_data) < .20]
+
+# Median replace ordinal variables
+for(j in 2:30) {
+  m <- median(social_data[,j], na.rm=TRUE)
+  
+  for (i in 1:nrow(social_data)) {
+    if(is.na(social_data[i,j])) {social_data[i,j] <- m}
+  }
+}
+
+# Create summary scores for social domains
+social_data$emotional_support <- rowSums(social_data[,c("Response.SOC200", "Response.SOC203", "Response.SOC205", "Response.SOC216", "Response.SOC222", "Response.SOC225", "Response.SOC226")])
+social_data$friendship <- rowSums(social_data[,c("Response.SOC230", "Response.SOC233", "Response.SOC237", "Response.SOC239m", "Response.SOC247")])
+social_data$perceived_hostility <- rowSums(social_data[,c("Response.SOC262", "Response.SOC263", "Response.SOC267", "Response.SOC268", "Response.SOC270")])
+social_data$loneliness <- rowSums(social_data[,c("Response.SOC252", "Response.SOC253", "Response.SOC254", "Response.SOC258", "Response.SOC259", "Response.SOC260", "Response.SOC261")])
+social_data$perceived_rejection <- rowSums(social_data[,c("Response.SOC276", "Response.SOC279", "Response.SOC281", "Response.SOC283", "Response.SOC287")])
+
+# Conduct linear regressions:
+## DVs: social domain scores
+## Predictors: all four affect factors
+## Controls: gender, spline of age
+# Unconstrained models (where the coefficients were allowed to differ for each of the negative affect factors)
+# were compared with constrained models (where the coefficients were equal for all negative affect factors)
+
+# DV: emotional support
+M1_social_sumscore <- gam(emotional_support ~ ML4 + ML3 + ML2 + ML1 + gender + s(age), data = social_data); summary(M1_social_sumscore)
+M1_social_sumscore_null <- gam(emotional_support ~ I(ML4 + ML3 + ML2 + ML1) + gender + s(age), data = social_data); summary(M1_social_sumscore_null)
+AIC(M1_social_sumscore, M1_social_sumscore_null)
+dfm1 <- 770 - sum(influence(M1_social_sumscore))
+
+# DV: friendship
+M2_social_sumscore <- gam(friendship ~ ML4 + ML3 + ML2 + ML1 + gender + s(age), data = social_data); summary(M2_social_sumscore)
+M2_social_sumscore_null <- gam(friendship ~ I(ML4 + ML3 + ML2 + ML1) + gender + s(age), data = social_data); summary(M2_social_sumscore_null)
+AIC(M2_social_sumscore, M2_social_sumscore_null)  
+dfm2 <- 770 - sum(influence(M2_social_sumscore))
+
+# DV: perceived hostility
+M3_social_sumscore <- gam(perceived_hostility ~ ML4 + ML3 + ML2 + ML1 + gender + s(age), data = social_data); summary(M3_social_sumscore)
+M3_social_sumscore_null <- gam(perceived_hostility ~ I(ML4 + ML3 + ML2 + ML1) + gender + s(age), data = social_data); summary(M3_social_sumscore_null)
+AIC(M3_social_sumscore, M3_social_sumscore_null) 
+dfm3 <- 770 - sum(influence(M3_social_sumscore))
+
+# DV: loneliness
+M4_social_sumscore <- gam(loneliness ~ ML4 + ML3 + ML2 + ML1 + gender + s(age), data = social_data); summary(M4_social_sumscore)
+M4_social_sumscore_null <- gam(loneliness ~ I(ML4 + ML3 + ML2 + ML1) + gender + s(age), data = social_data); summary(M4_social_sumscore_null)
+AIC(M4_social_sumscore, M4_social_sumscore_null)  
+dfm4 <- 770 - sum(influence(M4_social_sumscore))
+
+# DV: perceived rejection
+M5_social_sumscore <- gam(perceived_rejection ~ ML4 + ML3 + ML2 + ML1 + gender + s(age), data = social_data); summary(M5_social_sumscore)
+M5_social_sumscore_null <- gam(perceived_rejection ~ I(ML4 + ML3 + ML2 + ML1) + gender + s(age), data = social_data); summary(M5_social_sumscore_null)
+AIC(M5_social_sumscore, M5_social_sumscore_null) 
+dfm5 <- 770 - sum(influence(M5_social_sumscore))
+
+```
+
+## Importance
+These results show that subsuming these subtypes of negative affect under a singular concept may obscure meaningful relationships between affect, age, and functioning. Exploring diverse forms of negative affect may help refine theories of emotional development and ultimately inform windows of risk for psychopathology.
